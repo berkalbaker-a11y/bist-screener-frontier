@@ -3,7 +3,8 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 
-from ta.momentum import RSIIndicator, StochasticOscillator, MFIIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator
+from ta.volume import MFIIndicator
 from ta.trend import ADXIndicator, SMAIndicator, MACD
 from ta.volatility import AverageTrueRange
 

@@ -18,16 +18,13 @@ def try_import(name, alias=None):
         return True, getattr(mod, "__version__", "ok")
     except Exception as e:
         return False, str(e)
-
+        
 checks = {
     "streamlit": try_import("streamlit"),
     "pandas": try_import("pandas"),
     "numpy": try_import("numpy"),
     "yfinance": try_import("yfinance"),
-    "pandas_ta": try_import("pandas_ta"),
-    "scikit-learn": try_import("sklearn"),
-    # cvxpy opsiyonel; yoksa uyarı göster, Lite modda çalışabiliriz
-    "cvxpy (opsiyonel)": try_import("cvxpy"),
+    "ta": try_import("ta"),              # <-- burası değişti
     "plotly": try_import("plotly"),
     "pyyaml": try_import("yaml"),
 }

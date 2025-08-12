@@ -5,4 +5,5 @@ yfinance
 ta
 plotly
 pyyaml
-# (Sprint-1'de scikit-learn şart değil; istersen ekleyebilirsin)
+scikit-learn
+scipy

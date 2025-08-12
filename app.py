@@ -5,6 +5,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from core.portfolio import mu_cov, max_sharpe, min_var, efficient_frontier, backtest_walk_forward, max_sharpe_k, backtest_walk_forward_k
+
 
 from core.data import read_tickers_from_csv, fetch_ohlcv, tl_turnover, liquidity_filter
 from core.indicators import compute_all_indicators

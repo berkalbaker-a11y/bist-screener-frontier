@@ -4,6 +4,9 @@ from datetime import date
 import streamlit as st
 import pandas as pd
 import numpy as np
+from core.portfolio import mu_cov, max_sharpe, min_var, efficient_frontier, backtest_walk_forward
+import plotly.graph_objects as go
+
 
 from core.data import read_tickers_from_csv, fetch_ohlcv, tl_turnover, liquidity_filter
 from core.indicators import compute_all_indicators
@@ -158,3 +161,63 @@ if run and rules_ok:
     st.write("Seçilenler:", picked)
 
     st.info("✅ Sprint-1 bitti. Sprint-2’de: Efficient Frontier + Max-Sharpe / Min-Var + rebalans & metrikler.")
+# --- PORTFÖY PARAMETRELERİ (Sidebar) ---
+st.sidebar.header("Portföy Parametreleri")
+pf_lookback = st.sidebar.slider("μ/Σ Lookback (gün)", 60, 756, 252, step=21)
+rf = st.sidebar.number_input("Risksiz faiz (yıllık, %)", value=0.0, step=0.5) / 100.0
+cap = st.sidebar.slider("Tek hisse tavanı (%)", 5, 50, 15) / 100.0
+rebalance = st.sidebar.selectbox("Rebalans", ["W","M","Q"], index=1)
+fee_bps = st.sidebar.number_input("Komisyon (bps)", value=2.0, step=1.0, help="1 bps = %0.01")
+slip_bps = st.sidebar.number_input("Slippage (bps)", value=5.0, step=1.0)
+
+if picked:
+    sub_close = close[picked].dropna(how="all").ffill()
+    if len(sub_close.columns) >= 2 and len(sub_close) > pf_lookback + 20:
+        st.subheader("🟩 Efficient Frontier")
+        try:
+            mu, cov = mu_cov(sub_close, pf_lookback)
+            w_ms = max_sharpe(mu, cov, rf=rf, cap=cap)
+            w_mv = min_var(cov, cap=cap)
+
+            # Frontier
+            fr = efficient_frontier(mu, cov, points=25, cap=cap)
+            fig = go.Figure()
+            if not fr.empty:
+                fig.add_trace(go.Scatter(x=fr["vol"], y=fr["return"], mode="lines", name="Frontier"))
+            # Noktalar
+            ms_r = float(mu @ w_ms); ms_v = float(np.sqrt(np.maximum(w_ms.values @ cov.values @ w_ms.values, 1e-12)))
+            mv_r = float(mu @ w_mv); mv_v = float(np.sqrt(np.maximum(w_mv.values @ cov.values @ w_mv.values, 1e-12)))
+            fig.add_trace(go.Scatter(x=[ms_v], y=[ms_r], mode="markers", name="Max-Sharpe", marker=dict(size=10)))
+            fig.add_trace(go.Scatter(x=[mv_v], y=[mv_r], mode="markers", name="Min-Var", marker=dict(size=10)))
+            fig.update_layout(xaxis_title="Volatilite (yıllık)", yaxis_title="Getiri (yıllık)", height=420)
+            st.plotly_chart(fig, use_container_width=True)
+
+            colw1, colw2 = st.columns(2)
+            with colw1:
+                st.write("**Max-Sharpe Ağırlıklar**")
+                st.dataframe(w_ms.sort_values(ascending=False).to_frame("weight"))
+            with colw2:
+                st.write("**Min-Var Ağırlıklar**")
+                st.dataframe(w_mv.sort_values(ascending=False).to_frame("weight"))
+
+            # Backtest
+            st.subheader("📈 Walk-Forward Backtest (Max-Sharpe, rebalanslı)")
+            bt = backtest_walk_forward(sub_close, rf_annual=rf, lookback=pf_lookback,
+                                       rebalance=rebalance, cap=cap, fee_bps=fee_bps, slippage_bps=slip_bps)
+            eq = bt["equity"]
+            fig2 = go.Figure()
+            fig2.add_trace(go.Scatter(x=eq.index, y=eq.values, mode="lines", name="Equity"))
+            fig2.update_layout(height=400, xaxis_title="Tarih", yaxis_title="Portföy Değeri")
+            st.plotly_chart(fig2, use_container_width=True)
+
+            st.write("**Metrikler**")
+            st.json(bt["metrics"])
+
+            # Rebalans ağırlık rekorları (özet)
+            if bt["weights"]:
+                st.write("**Rebalans Ağırlıkları (özet)**")
+                st.dataframe(pd.DataFrame([{**{"date": d}, **w} for d, w in bt["weights"]]).set_index("date"))
+        except Exception as e:
+            st.error(f"Portföy/Backtest hatası: {e}")
+    else:
+        st.warning("Portföy için en az 2 sembol ve yeterli tarih penceresi gerekli.")

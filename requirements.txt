@@ -2,7 +2,7 @@ streamlit
 pandas
 numpy
 yfinance
-pandas-ta
-scikit-learn
+ta
 plotly
 pyyaml
+# (Sprint-1'de scikit-learn şart değil; istersen ekleyebilirsin)

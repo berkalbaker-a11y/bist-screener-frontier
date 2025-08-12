@@ -138,42 +138,56 @@ if run and rules_ok:
     fee_bps = st.sidebar.number_input("Komisyon (bps)", value=2.0, step=1.0, help="1 bps = %0.01")
     slip_bps = st.sidebar.number_input("Slippage (bps)", value=5.0, step=1.0)
 
-    if picked:
-        sub_close = close[picked].dropna(how="all").ffill()
-        if len(sub_close.columns) >= 2 and len(sub_close) > pf_lookback + 20:
-            st.subheader("🟩 Efficient Frontier")
-            try:
-                mu, cov = mu_cov(sub_close, pf_lookback)
-                w_ms = max_sharpe(mu, cov, rf=rf, cap=cap)
-                w_mv = min_var(cov, cap=cap)
+if picked:
+    sub_close = close[picked].dropna(how="all").ffill()
+    # Kullanıcı K belirlesin (2..seçili sayısı)
+    k_target = st.slider("Portföy büyüklüğü (K adet hisse)", 2, len(sub_close.columns), min(10, len(sub_close.columns)))
+    ...
+    if len(sub_close.columns) >= 2 and len(sub_close) > pf_lookback + 20:
+        st.subheader("🟩 Efficient Frontier")
+        try:
+            mu, cov = mu_cov(sub_close, pf_lookback)
 
-                fr = efficient_frontier(mu, cov, points=25, cap=cap)
-                fig = go.Figure()
-                if not fr.empty:
-                    fig.add_trace(go.Scatter(x=fr["vol"], y=fr["return"], mode="lines", name="Frontier"))
-                ms_v = float(np.sqrt(np.maximum(w_ms.values @ cov.values @ w_ms.values, 1e-12)))
-                ms_r = float(mu @ w_ms)
-                mv_v = float(np.sqrt(np.maximum(w_mv.values @ cov.values @ w_mv.values, 1e-12)))
-                mv_r = float(mu @ w_mv)
-                fig.add_trace(go.Scatter(x=[ms_v], y=[ms_r], mode="markers", name="Max-Sharpe", marker=dict(size=10)))
-                fig.add_trace(go.Scatter(x=[mv_v], y=[mv_r], mode="markers", name="Min-Var", marker=dict(size=10)))
-                fig.update_layout(xaxis_title="Volatilite (yıllık)", yaxis_title="Getiri (yıllık)", height=420)
-                st.plotly_chart(fig, use_container_width=True)
+            # K'siz ve K'li çözümler
+            w_ms_full = max_sharpe(mu, cov, rf=rf, cap=cap)
+            w_ms_k    = max_sharpe_k(mu, cov, k=k_target, rf=rf, cap=cap)
+            w_mv      = min_var(cov, cap=cap)  # (istersen bunu da K'li yaparız)
 
-                c1, c2 = st.columns(2)
-                with c1: st.write("**Max-Sharpe Ağırlıklar**"); st.dataframe(w_ms.sort_values(ascending=False).to_frame("weight"))
-                with c2: st.write("**Min-Var Ağırlıklar**");  st.dataframe(w_mv.sort_values(ascending=False).to_frame("weight"))
+            # Frontier (bilgi amaçlı, tüm seçilenler üzerinde)
+            fr = efficient_frontier(mu, cov, points=25, cap=cap)
+            fig = go.Figure()
+            if not fr.empty:
+                fig.add_trace(go.Scatter(x=fr["vol"], y=fr["return"], mode="lines", name="Frontier"))
 
-                st.subheader("📈 Walk-Forward Backtest (Max-Sharpe)")
-                bt = backtest_walk_forward(sub_close, rf_annual=rf, lookback=pf_lookback,
-                                           rebalance=rebalance, cap=cap, fee_bps=fee_bps, slippage_bps=slip_bps)
-                eq = bt["equity"]
-                fig2 = go.Figure()
-                fig2.add_trace(go.Scatter(x=eq.index, y=eq.values, mode="lines", name="Equity"))
-                fig2.update_layout(height=400, xaxis_title="Tarih", yaxis_title="Portföy Değeri")
-                st.plotly_chart(fig2, use_container_width=True)
-                st.write("**Metrikler**"); st.json(bt["metrics"])
-            except Exception as e:
-                st.error(f"Portföy/Backtest hatası: {e}")
-        else:
-            st.warning("Portföy için en az 2 sembol ve yeterli tarih penceresi gerekli.")
+            # Noktalar: Full ve K'li Max-Sharpe
+            def rp(w): 
+                v = float(np.sqrt(np.maximum(w.values @ cov.values @ w.values, 1e-12)))
+                r = float(mu @ w)
+                return v, r
+            ms_v, ms_r = rp(w_ms_full); msk_v, msk_r = rp(w_ms_k); mv_v, mv_r = rp(w_mv)
+            fig.add_trace(go.Scatter(x=[ms_v],  y=[ms_r],  mode="markers", name="Max-Sharpe (full)", marker=dict(size=9)))
+            fig.add_trace(go.Scatter(x=[msk_v], y=[msk_r], mode="markers", name=f"Max-Sharpe (K={k_target})", marker=dict(size=10)))
+            fig.add_trace(go.Scatter(x=[mv_v],  y=[mv_r],  mode="markers", name="Min-Var", marker=dict(size=9)))
+            fig.update_layout(xaxis_title="Volatilite (yıllık)", yaxis_title="Getiri (yıllık)", height=420)
+            st.plotly_chart(fig, use_container_width=True)
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("**Max-Sharpe (K sınırsız) ağırlıklar**")
+                st.dataframe(w_ms_full.sort_values(ascending=False).to_frame("weight"))
+            with c2:
+                st.write(f"**Max-Sharpe (K={k_target}) ağırlıklar**")
+                st.dataframe(w_ms_k[w_ms_k>0].sort_values(ascending=False).to_frame("weight"))
+
+            # Backtest: K'li portföy
+            st.subheader(f"📈 Walk-Forward Backtest — Max-Sharpe (K={k_target})")
+            bt = backtest_walk_forward_k(sub_close, k=k_target, rf_annual=rf, lookback=pf_lookback,
+                                         rebalance=rebalance, cap=cap, fee_bps=fee_bps, slippage_bps=slip_bps)
+            eq = bt["equity"]
+            fig2 = go.Figure()
+            fig2.add_trace(go.Scatter(x=eq.index, y=eq.values, mode="lines", name="Equity"))
+            fig2.update_layout(height=400, xaxis_title="Tarih", yaxis_title="Portföy Değeri")
+            st.plotly_chart(fig2, use_container_width=True)
+            st.write("**Metrikler**"); st.json(bt["metrics"])
+        except Exception as e:
+            st.error(f"Portföy/Backtest hatası: {e}")

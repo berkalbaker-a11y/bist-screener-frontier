@@ -6,7 +6,3 @@ pandas-ta
 scikit-learn
 plotly
 pyyaml
-cvxpy
-ecos
-osqp
-scs
